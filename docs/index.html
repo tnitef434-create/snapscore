@@ -89,7 +89,7 @@ canvas{width:100%;height:150px;display:block}
 
   <div class="card">
     <div class="lbl">➕ New update</div>
-    <input id="in" type="number" inputmode="numeric" placeholder="Enter new snapscore">
+    <input id="in" type="text" inputmode="numeric" autocomplete="off" placeholder="Enter new snapscore">
     <button id="add">Update Score</button>
     <button class="ghostbtn" id="undo">Undo last</button>
   </div>
@@ -103,11 +103,24 @@ canvas{width:100%;height:150px;display:block}
 <div class="toast" id="toast"></div>
 
 <script>
-const KEY='snapscore_sara_prins240';let S={pts:[]};
+// Shared via the Cloudflare Worker API; falls back to this browser only if the API is unreachable.
+const KEY='snapscore_sara_prins240';let S={pts:[]};let shared=true;
 try{S.pts=JSON.parse(localStorage.getItem(KEY))||[]}catch(e){}
 if(!S.pts.length)S.pts=[{id:'1791015771356',t:1791015771356,s:24388}];
-const persist=()=>{try{localStorage.setItem(KEY,JSON.stringify(S.pts))}catch(e){}render()};
-const col={doc:id=>({set:async d=>{S.pts.push({id,...d});persist()},delete:async()=>{S.pts=S.pts.filter(q=>q.id!==id);persist()}})};
+const cache=()=>{try{localStorage.setItem(KEY,JSON.stringify(S.pts))}catch(e){}};
+async function load(){
+  try{const r=await fetch('/api/scores',{cache:'no-store'});if(!r.ok)throw 0;S.pts=(await r.json()).pts;shared=true;cache();render()}
+  catch(e){shared=false}
+}
+async function api(method,path,body,local){
+  if(!shared){local();cache();render();return true}
+  try{
+    const r=await fetch(path,{method,headers:{'content-type':'application/json'},body:body?JSON.stringify(body):undefined});
+    const j=await r.json();if(j.pts){S.pts=j.pts;cache();render()}
+    if(!r.ok){toast(j.error||'Could not save, try again');return false}
+    return true;
+  }catch(e){toast('Could not save, check your connection');return false}
+}
 const $=id=>document.getElementById(id);
 const fmt=n=>Math.round(n).toLocaleString();
 
@@ -152,11 +165,9 @@ function rel(ms){
 
 async function addScore(v){
   const last=S.pts[S.pts.length-1];
-  if(last&&v<last.s){toast('Snapscores cannot go down 😅');return}
-  if(!col){toast('Could not save');return}
+  if(last&&v<last.s){toast('Must be at least '+fmt(last.s));return}
   const t=Date.now();
-  try{await col.doc(String(t)).set({t,s:v});toast('Score updated ✨')}
-  catch(e){toast(e&&e.code==='permission_denied'?'You do not have permission to update':'Could not save, try again')}
+  await api('POST','/api/scores',{s:v},()=>{S.pts.push({id:String(t),t,s:v})})&&toast('Score updated ✨');
 }
 
 function render(){
@@ -207,16 +218,16 @@ function drawChart(){
 }
 
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');clearTimeout(t._);t._=setTimeout(()=>t.classList.remove('on'),1800)}
-$('add').onclick=()=>{const v=parseInt($('in').value,10);if(!(v>=0)){toast('Enter a number');return}addScore(v);$('in').value=''};
+$('add').onclick=()=>{const raw=$('in').value.replace(/D/g,'');const v=parseInt(raw,10);if(!(v>=0)){toast('Enter a number');return}addScore(v);$('in').value=''};
 $('in').onkeydown=e=>{if(e.key==='Enter')$('add').click()};
-$('undo').onclick=async()=>{const l=S.pts[S.pts.length-1];if(!l||!col)return;try{await col.doc(l.id).delete();toast('Removed last update')}catch(e){toast('Could not remove it')}};
+$('undo').onclick=async()=>{if(S.pts.length<2)return;await api('DELETE','/api/scores/last',null,()=>{S.pts.pop()})&&toast('Removed last update')};
 let armed=0;$('reset').onclick=async()=>{
   if(Date.now()-armed>4000){armed=Date.now();$('reset').textContent='Tap again to delete everything';setTimeout(()=>$('reset').textContent='Reset all data',4000);return}
-  armed=0;$('reset').textContent='Reset all data';if(!col)return;
-  for(const q of S.pts.slice()){try{await col.doc(q.id).delete()}catch(e){}}toast('All data cleared');
+  armed=0;$('reset').textContent='Reset all data';
+  await api('DELETE','/api/scores',null,()=>{S.pts=S.pts.slice(-1)})&&toast('History cleared');
 };
 addEventListener('resize',drawChart);
-render();setInterval(tick,1000);
+render();setInterval(tick,1000);load();setInterval(load,15000);
 </script>
 </body>
 </html>
