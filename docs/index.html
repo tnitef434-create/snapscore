@@ -218,7 +218,7 @@ function drawChart(){
 }
 
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');clearTimeout(t._);t._=setTimeout(()=>t.classList.remove('on'),1800)}
-$('add').onclick=()=>{const raw=$('in').value.replace(/D/g,'');const v=parseInt(raw,10);if(!(v>=0)){toast('Enter a number');return}addScore(v);$('in').value=''};
+$('add').onclick=()=>{const raw=$('in').value.replace(/[^0-9]/g,'');const v=parseInt(raw,10);if(!(v>=0)){toast('Enter a number');return}addScore(v);$('in').value=''};
 $('in').onkeydown=e=>{if(e.key==='Enter')$('add').click()};
 $('undo').onclick=async()=>{if(S.pts.length<2)return;await api('DELETE','/api/scores/last',null,()=>{S.pts.pop()})&&toast('Removed last update')};
 let armed=0;$('reset').onclick=async()=>{
